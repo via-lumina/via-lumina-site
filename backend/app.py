@@ -1,4 +1,15 @@
+from flask import Flask, request, jsonify
+import sqlite3
+import os
 from email_utils import send_email
+
+app = Flask(__name__)
+DATABASE = os.path.join(os.path.dirname(__file__), '..', 'data', 'via_lumina.db')
+
+def get_db_connection():
+    conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 @app.route('/api/register', methods=['POST'])
 def register():
@@ -13,7 +24,7 @@ def register():
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        cur.execute('INSERT INTO members (email, country, postcode) VALUES (?, ?, ?)',
+        cur.execute('INSERT INTO members (email, country, postcode) VALUES (?, ?, ?)', 
                     (email, country, postcode))
         conn.commit()
     except sqlite3.IntegrityError:
@@ -21,7 +32,7 @@ def register():
     finally:
         conn.close()
 
-    # 🟡 HIER MUSS DIE MAIL KOMMEN
+    # 📬 Mail versenden
     subject = "Willkommen auf dem Weg – Via Lumina"
     plain_text = (
         "Danke, dass du dich bei Via Lumina registriert hast.\n"
@@ -37,3 +48,12 @@ def register():
     send_email(email, subject, plain_text, html_content)
 
     return jsonify({'message': 'Member registered successfully'}), 201
+
+@app.route('/')
+def index():
+    return "Via Lumina Backend API"
+
+# Für Render – Port dynamisch setzen
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
