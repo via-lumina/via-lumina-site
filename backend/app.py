@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, redirect
 import sqlite3
 import os
 import hashlib
@@ -44,7 +44,7 @@ def register():
         conn.close()
 
     # Bestätigungslink erstellen
-    confirm_url = f"https://www.via-lumina.org/confirm?email={email}&token={token}"
+    confirm_url = f"https://www.via-lumina.org/api/confirm?email={email}&token={token}"
 
     # E-Mail versenden
     subject = "Bestätige deine Anmeldung bei Via Lumina"
@@ -86,7 +86,8 @@ def confirm_email():
     conn.commit()
     conn.close()
 
-    return jsonify({'message': 'Deine Anmeldung wurde bestätigt. Willkommen auf dem Weg.'}), 200
+    # Weiterleitung zur Bestätigungsseite
+    return redirect("https://www.via-lumina.org/bestaetigt.html", code=302)
 
 # Render-Port Setup
 if __name__ == '__main__':
