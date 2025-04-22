@@ -1,0 +1,21 @@
+
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Via Lumina</title>
+  <script>
+    fetch('/config.json')
+      .then(res => res.json())
+      .then(cfg => {
+        if (cfg.maintenance) {
+          window.location.href = "maintenance.html";
+        }
+      });
+  </script>
+</head>
+<body>
+  <h1>Willkommen bei Via Lumina</h1>
+  <p>Die Seite lädt ...</p>
+</body>
+</html>

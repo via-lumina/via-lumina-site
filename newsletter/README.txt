@@ -1,0 +1,1 @@
+Dies ist ein Bestandteil der strukturierten Via Lumina Architektur.
