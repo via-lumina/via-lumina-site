@@ -64,6 +64,30 @@ def register():
 
     return jsonify({'message': 'Bitte bestätige deine E-Mail. Eine Nachricht wurde gesendet.'}), 201
 
+@app.route('/api/confirm', methods=['GET'])
+def confirm_email():
+    email = request.args.get('email')
+    token = request.args.get('token')
+
+    if not email or not token:
+        return jsonify({'error': 'Ungültiger Bestätigungslink'}), 400
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM members WHERE email = ? AND token = ?', (email, token))
+    user = cur.fetchone()
+
+    if not user:
+        conn.close()
+        return jsonify({'error': 'E-Mail oder Token ungültig'}), 404
+
+    # Bestätigen
+    cur.execute('UPDATE members SET confirmed = 1 WHERE email = ?', (email,))
+    conn.commit()
+    conn.close()
+
+    return jsonify({'message': 'Deine Anmeldung wurde bestätigt. Willkommen auf dem Weg.'}), 200
+
 # Render-Port Setup
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
