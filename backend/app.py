@@ -6,7 +6,9 @@ import secrets
 import hashlib
 from email_utils import send_email
 
-app = Flask(__name__, static_url_path='/static', static_folder='../static')
+import os
+app = Flask(__name__, static_url_path='/static', static_folder=os.path.join(os.path.dirname(__file__), 'static'))
+
 
 # --- Konfiguration ---
 DB_CONFIG = {
