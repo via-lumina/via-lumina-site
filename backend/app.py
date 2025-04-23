@@ -4,7 +4,7 @@ import requests
 import os
 import secrets
 import hashlib
-from email_utils import send_email 
+from email_utils import send_email
 
 app = Flask(__name__, static_url_path='/static', static_folder='../static')
 
@@ -165,6 +165,11 @@ def api_lichtpunkte():
 
 @app.route('/api/map.svg', methods=['GET'])
 def render_svg_map():
+    # Lade die Original-SVG-Datei aus dem static-Ordner
+    with open(os.path.join(app.static_folder, 'map_template.svg'), 'r', encoding='utf-8') as f:
+        svg_template = f.read()
+
+    # Hole bestätigte Lichtpunkte
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT DISTINCT country, postcode FROM members WHERE confirmed = TRUE")
@@ -172,22 +177,16 @@ def render_svg_map():
     cur.close()
     conn.close()
 
-    svg_header = '''<svg xmlns="http://www.w3.org/2000/svg" width="2754" height="1398" viewBox="0 0 2754 1398">
-      <rect width="100%" height="100%" fill="#000011"></rect>
-      <image href="https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/World_map_blank_without_borders.svg/2754px-World_map_blank_without_borders.svg.png" width="2754" height="1398" />
-    '''
-    svg_footer = '</svg>'
-
+    # Füge Kreise in SVG ein
     circles = []
     for country, postcode in results:
         lat, lon = get_coords_from_nominatim(postcode, country)
         if lat and lon:
             x, y = lonlat_to_svg_coords(lon, lat)
-            circle = f'<circle cx="{x}" cy="{y}" r="5" fill="yellow" />'
-            circles.append(circle)
+            circles.append(f'<circle cx="{x}" cy="{y}" r="5" fill="yellow" />')
 
-    svg_content = svg_header + "\n".join(circles) + svg_footer
-    return Response(svg_content, mimetype='image/svg+xml')
+    svg_with_circles = svg_template.replace('</svg>', "\n".join(circles) + '\n</svg>')
+    return Response(svg_with_circles, mimetype='image/svg+xml')
 
 # --- App Start ---
 if __name__ == '__main__':
