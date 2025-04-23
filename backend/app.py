@@ -7,7 +7,7 @@ from email_utils import send_email
 
 app = Flask(__name__)
 
-# 🔐 PostgreSQL-Verbindung aus Umgebungsvariablen
+# 🔐 PostgreSQL-Konfiguration aus Umgebungsvariablen
 DB_CONFIG = {
     'dbname': os.environ['DB_NAME'],
     'user': os.environ['DB_USER'],
@@ -20,12 +20,11 @@ DB_CONFIG = {
 ADMIN_TOKEN = "$TefanTux240192"
 
 def get_db_connection():
-    conn = psycopg2.connect(**DB_CONFIG)
-    return conn
+    return psycopg2.connect(**DB_CONFIG)
 
 @app.route('/')
 def index():
-    return "Via Lumina Backend (PostgreSQL Connected)"
+    return "Via Lumina Backend (PostgreSQL verbunden)"
 
 @app.route('/api/register', methods=['POST'])
 def register():
@@ -126,6 +125,37 @@ def get_members():
     ]
 
     return jsonify({'members': members})
+
+@app.route('/api/init-db', methods=['POST'])
+def init_db():
+    token = request.args.get('access_token')
+    if token != ADMIN_TOKEN:
+        return jsonify({'error': 'Zugriff verweigert'}), 403
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS members (
+                id SERIAL PRIMARY KEY,
+                email TEXT NOT NULL UNIQUE,
+                country TEXT NOT NULL,
+                postcode TEXT NOT NULL,
+                confirmed BOOLEAN DEFAULT FALSE,
+                token TEXT
+            );
+        ''')
+        conn.commit()
+        return jsonify({'message': 'Tabelle "members" wurde erfolgreich erstellt.'}), 201
+
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'error': str(e)}), 500
+
+    finally:
+        cur.close()
+        conn.close()
 
 # Render-Port Setup
 if __name__ == '__main__':
