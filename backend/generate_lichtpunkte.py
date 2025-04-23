@@ -1,9 +1,12 @@
+from flask import Flask, request, jsonify
 import psycopg2
 import requests
 import os
-from flask import Flask, request, jsonify
+import secrets
+import hashlib
+from email_utils import send_email
 
-app = Flask(__name__)
+app = Flask(__name__, static_url_path='/static', static_folder='../static')
 
 DB_CONFIG = {
     'dbname': os.environ['DB_NAME'],
@@ -13,11 +16,12 @@ DB_CONFIG = {
     'port': os.environ.get('DB_PORT', 5432)
 }
 
+ADMIN_TOKEN = "$TefanTux240192"
 SVG_WIDTH = 2754
 SVG_HEIGHT = 1398
-OUTPUT_FILE = os.path.join(os.path.dirname(__file__), '../assets/lichtpunkte.svg')
 
-ADMIN_TOKEN = "$TefanTux240192"
+def get_db_connection():
+    return psycopg2.connect(**DB_CONFIG)
 
 def lonlat_to_svg_coords(lon, lat):
     x = (lon + 180) * (SVG_WIDTH / 360)
@@ -32,43 +36,132 @@ def get_coords_from_nominatim(postcode, country):
     if data:
         lat = float(data[0]['lat'])
         lon = float(data[0]['lon'])
-        return lonlat_to_svg_coords(lon, lat)
+        return lat, lon
     return None, None
 
-def generate_svg():
-    conn = psycopg2.connect(**DB_CONFIG)
+@app.route('/')
+def index():
+    return "Via Lumina Backend aktiv"
+
+@app.route('/api/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    email = data.get('email')
+    country = data.get('country')
+    postcode = data.get('postcode')
+
+    if not email or not country or not postcode:
+        return jsonify({'error': 'Missing fields'}), 400
+
+    raw_token = f"{email}-{secrets.token_hex(16)}"
+    token = hashlib.sha256(raw_token.encode()).hexdigest()
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute('''
+            INSERT INTO members (email, country, postcode, confirmed, token)
+            VALUES (%s, %s, %s, %s, %s)
+        ''', (email, country, postcode, False, token))
+        conn.commit()
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        return jsonify({'error': 'Email already registered'}), 409
+    finally:
+        cur.close()
+        conn.close()
+
+    confirm_url = f"https://via-lumina-backend.onrender.com/api/confirm?email={email}&token={token}"
+    subject = "Bestätige deine Anmeldung bei Via Lumina"
+    plain_text = f"Bitte bestätige deine Anmeldung:\n{confirm_url}"
+    html_content = f"""
+    <p>Bitte bestätige deine Anmeldung bei <strong>Via Lumina</strong>:</p>
+    <p><a href=\"{confirm_url}\">{confirm_url}</a></p>
+    """
+
+    send_email(email, subject, plain_text, html_content)
+    return jsonify({'message': 'Bitte bestätige deine E-Mail.'}), 201
+
+@app.route('/api/confirm', methods=['GET'])
+def confirm_email():
+    email = request.args.get('email')
+    token = request.args.get('token')
+
+    if not email or not token:
+        return "<h1>Ungültiger Link</h1>", 400
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM members WHERE email = %s AND token = %s', (email, token))
+    user = cur.fetchone()
+
+    if not user:
+        cur.close()
+        conn.close()
+        return "<h1>Bestätigung fehlgeschlagen</h1>", 404
+
+    cur.execute('UPDATE members SET confirmed = TRUE WHERE email = %s', (email,))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return """
+    <html>
+      <head>
+        <meta http-equiv=\"refresh\" content=\"0; URL='https://www.via-lumina.org/bestaetigt.html'\" />
+      </head>
+      <body>
+        <p>Du wirst weitergeleitet…</p>
+      </body>
+    </html>
+    """
+
+@app.route('/api/members', methods=['GET'])
+def get_members():
+    token = request.args.get('access_token')
+    if token != ADMIN_TOKEN:
+        return jsonify({'error': 'Zugriff verweigert'}), 403
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id, email, country, postcode, confirmed FROM members")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    members = [
+        {
+            'id': r[0],
+            'email': r[1],
+            'country': r[2],
+            'postcode': r[3],
+            'confirmed': r[4]
+        } for r in rows
+    ]
+
+    return jsonify({'members': members})
+
+@app.route('/api/lichtpunkte', methods=['GET'])
+def api_lichtpunkte():
+    conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT DISTINCT country, postcode FROM members WHERE confirmed = TRUE")
     results = cur.fetchall()
+    cur.close()
     conn.close()
 
-    circles = []
+    lichtpunkte = []
     for country, postcode in results:
-        cx, cy = get_coords_from_nominatim(postcode, country)
-        if cx and cy:
-            circles.append(f'''
-<circle cx="{cx}" cy="{cy}" r="1.0" fill="#f4b400" filter="url(#glow)">
-  <title>{postcode}, {country} – Ein Ort, an dem das Licht weiterlebt.</title>
-</circle>
-''')
+        lat, lon = get_coords_from_nominatim(postcode, country)
+        if lat and lon:
+            lichtpunkte.append({
+                'country': country,
+                'postcode': postcode,
+                'lat': lat,
+                'lon': lon
+            })
 
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        f.write("<svg xmlns='http://www.w3.org/2000/svg' width='2754' height='1398'>\n")
-        f.write("<defs><filter id='glow'><feGaussianBlur stdDeviation='2.5' result='glow'/></filter></defs>\n")
-        f.writelines(circles)
-        f.write("</svg>")
+    return jsonify({'lichtpunkte': lichtpunkte})
 
-@app.route("/api/generate-lichtpunkte", methods=["POST"])
-def api_generate_lichtpunkte():
-    token = request.args.get("access_token")
-    if token != ADMIN_TOKEN:
-        return jsonify({"error": "Zugriff verweigert"}), 403
-
-    try:
-        generate_svg()
-        return jsonify({"status": "fertig"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
