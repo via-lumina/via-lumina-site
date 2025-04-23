@@ -6,7 +6,7 @@ import secrets
 import hashlib
 from email_utils import send_email
 
-app = Flask(__name__)
+app = Flask(__name__, static_url_path='/static', static_folder='../static')
 
 DB_CONFIG = {
     'dbname': os.environ['DB_NAME'],
@@ -19,7 +19,10 @@ DB_CONFIG = {
 ADMIN_TOKEN = "$TefanTux240192"
 SVG_WIDTH = 2754
 SVG_HEIGHT = 1398
-OUTPUT_FILE = os.path.join(os.path.dirname(__file__), '../assets/lichtpunkte.svg')
+
+STATIC_DIR = os.path.join(os.path.dirname(__file__), '../static')
+os.makedirs(STATIC_DIR, exist_ok=True)
+OUTPUT_FILE = os.path.join(STATIC_DIR, 'lichtpunkte.svg')
 
 def get_db_connection():
     return psycopg2.connect(**DB_CONFIG)
