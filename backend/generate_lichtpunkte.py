@@ -1,6 +1,9 @@
 import psycopg2
 import requests
 import os
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
 
 DB_CONFIG = {
     'dbname': os.environ['DB_NAME'],
@@ -13,6 +16,8 @@ DB_CONFIG = {
 SVG_WIDTH = 2754
 SVG_HEIGHT = 1398
 OUTPUT_FILE = os.path.join(os.path.dirname(__file__), '../assets/lichtpunkte.svg')
+
+ADMIN_TOKEN = "$TefanTux240192"
 
 def lonlat_to_svg_coords(lon, lat):
     x = (lon + 180) * (SVG_WIDTH / 360)
@@ -30,7 +35,7 @@ def get_coords_from_nominatim(postcode, country):
         return lonlat_to_svg_coords(lon, lat)
     return None, None
 
-def main():
+def generate_svg():
     conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
     cur.execute("SELECT DISTINCT country, postcode FROM members WHERE confirmed = TRUE")
@@ -53,5 +58,17 @@ def main():
         f.writelines(circles)
         f.write("</svg>")
 
+@app.route("/api/generate-lichtpunkte", methods=["POST"])
+def api_generate_lichtpunkte():
+    token = request.args.get("access_token")
+    if token != ADMIN_TOKEN:
+        return jsonify({"error": "Zugriff verweigert"}), 403
+
+    try:
+        generate_svg()
+        return jsonify({"status": "fertig"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == "__main__":
-    main()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
