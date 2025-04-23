@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Via Lumina – Karte</title>
+  <style>
+    body { margin: 0; background: #000011; }
+    svg { display: block; width: 100vw; height: auto; }
+    circle.lichtpunkt {
+      fill: #FFD700;
+      stroke: white;
+      stroke-width: 0.5;
+      opacity: 0.9;
+    }
+  </style>
+</head>
+<body>
+  <object id="karte" data="map.svg" type="image/svg+xml"></object>
+
+  <script>
+    async function drawLichtpunkte() {
+      const res = await fetch('/api/lichtpunkte');
+      const data = await res.json();
+      const svgDoc = document.getElementById('karte').contentDocument;
+      const svg = svgDoc.querySelector('svg');
+
+      data.lichtpunkte.forEach(punkt => {
+        const x = (punkt.lon + 180) * (2754 / 360);
+        const y = (90 - punkt.lat) * (1398 / 180);
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("cx", x);
+        circle.setAttribute("cy", y);
+        circle.setAttribute("r", 4);
+        circle.classList.add("lichtpunkt");
+        svg.appendChild(circle);
+      });
+    }
+
+    window.addEventListener('load', () => {
+      document.getElementById('karte').addEventListener('load', drawLichtpunkte);
+    });
+  </script>
+</body>
+</html>
