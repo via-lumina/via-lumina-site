@@ -1,24 +1,31 @@
 from flask import Flask, request, jsonify
-import sqlite3
+import psycopg2
 import os
 import hashlib
 import secrets
 from email_utils import send_email
 
 app = Flask(__name__)
-DATABASE = os.path.join(os.path.dirname(__file__), '..', 'data', 'via_lumina.db')
 
-# 🔐 Admin-Zugriffstoken definieren
+# 🔐 PostgreSQL-Verbindung aus Umgebungsvariablen
+DB_CONFIG = {
+    'dbname': os.environ['DB_NAME'],
+    'user': os.environ['DB_USER'],
+    'password': os.environ['DB_PASSWORD'],
+    'host': os.environ['DB_HOST'],
+    'port': os.environ.get('DB_PORT', 5432)
+}
+
+# 🔐 Admin-Zugriffstoken
 ADMIN_TOKEN = "$TefanTux240192"
 
 def get_db_connection():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(**DB_CONFIG)
     return conn
 
 @app.route('/')
 def index():
-    return "Via Lumina Backend API"
+    return "Via Lumina Backend (PostgreSQL Connected)"
 
 @app.route('/api/register', methods=['POST'])
 def register():
@@ -36,32 +43,30 @@ def register():
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        cur.execute('INSERT INTO members (email, country, postcode, confirmed, token) VALUES (?, ?, ?, ?, ?)',
-                    (email, country, postcode, False, token))
+        cur.execute('''
+            INSERT INTO members (email, country, postcode, confirmed, token)
+            VALUES (%s, %s, %s, %s, %s)
+        ''', (email, country, postcode, False, token))
         conn.commit()
-    except sqlite3.IntegrityError:
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
         return jsonify({'error': 'Email already registered'}), 409
     finally:
+        cur.close()
         conn.close()
 
     confirm_url = f"https://via-lumina-backend.onrender.com/api/confirm?email={email}&token={token}"
 
     subject = "Bestätige deine Anmeldung bei Via Lumina"
-    plain_text = (
-        f"Du hast dich bei Via Lumina registriert.\n\n"
-        f"Bitte bestätige deine Anmeldung, indem du auf diesen Link klickst:\n{confirm_url}\n\n"
-        f"Falls du dich nicht registriert hast, kannst du diese E-Mail ignorieren."
-    )
+    plain_text = f"Bitte bestätige deine Anmeldung:\n{confirm_url}"
     html_content = f"""
-    <p>Du hast dich bei <strong>Via Lumina</strong> registriert.</p>
-    <p>Bitte bestätige deine Anmeldung:</p>
+    <p>Bitte bestätige deine Anmeldung bei <strong>Via Lumina</strong>:</p>
     <p><a href="{confirm_url}">{confirm_url}</a></p>
-    <p>Falls du dich nicht registriert hast, kannst du diese E-Mail ignorieren.</p>
     """
 
     send_email(email, subject, plain_text, html_content)
 
-    return jsonify({'message': 'Bitte bestätige deine E-Mail. Eine Nachricht wurde gesendet.'}), 201
+    return jsonify({'message': 'Bitte bestätige deine E-Mail.'}), 201
 
 @app.route('/api/confirm', methods=['GET'])
 def confirm_email():
@@ -69,19 +74,21 @@ def confirm_email():
     token = request.args.get('token')
 
     if not email or not token:
-        return "<h1>Ungültiger Bestätigungslink</h1>", 400
+        return "<h1>Ungültiger Link</h1>", 400
 
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute('SELECT * FROM members WHERE email = ? AND token = ?', (email, token))
+    cur.execute('SELECT * FROM members WHERE email = %s AND token = %s', (email, token))
     user = cur.fetchone()
 
     if not user:
+        cur.close()
         conn.close()
         return "<h1>Bestätigung fehlgeschlagen</h1>", 404
 
-    cur.execute('UPDATE members SET confirmed = 1 WHERE email = ?', (email,))
+    cur.execute('UPDATE members SET confirmed = TRUE WHERE email = %s', (email,))
     conn.commit()
+    cur.close()
     conn.close()
 
     return """
@@ -105,19 +112,20 @@ def get_members():
     cur = conn.cursor()
     cur.execute("SELECT id, email, country, postcode, confirmed FROM members")
     rows = cur.fetchall()
+    cur.close()
     conn.close()
 
-    members = []
-    for row in rows:
-        members.append({
-            'id': row[0],
-            'email': row[1],
-            'country': row[2],
-            'postcode': row[3],
-            'confirmed': bool(row[4])
-        })
+    members = [
+        {
+            'id': r[0],
+            'email': r[1],
+            'country': r[2],
+            'postcode': r[3],
+            'confirmed': r[4]
+        } for r in rows
+    ]
 
-    return jsonify({'members': members}), 200
+    return jsonify({'members': members})
 
 # Render-Port Setup
 if __name__ == '__main__':
