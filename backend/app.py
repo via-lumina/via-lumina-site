@@ -1,13 +1,13 @@
 from flask import Flask, request, jsonify
 import psycopg2
+import requests
 import os
-import hashlib
 import secrets
+import hashlib
 from email_utils import send_email
 
 app = Flask(__name__)
 
-# 🔐 PostgreSQL-Konfiguration aus Umgebungsvariablen
 DB_CONFIG = {
     'dbname': os.environ['DB_NAME'],
     'user': os.environ['DB_USER'],
@@ -16,15 +16,56 @@ DB_CONFIG = {
     'port': os.environ.get('DB_PORT', 5432)
 }
 
-# 🔐 Admin-Zugriffstoken
 ADMIN_TOKEN = "$TefanTux240192"
+SVG_WIDTH = 2754
+SVG_HEIGHT = 1398
+OUTPUT_FILE = os.path.join(os.path.dirname(__file__), '../assets/lichtpunkte.svg')
 
 def get_db_connection():
     return psycopg2.connect(**DB_CONFIG)
 
+def lonlat_to_svg_coords(lon, lat):
+    x = (lon + 180) * (SVG_WIDTH / 360)
+    y = (90 - lat) * (SVG_HEIGHT / 180)
+    return round(x, 2), round(y, 2)
+
+def get_coords_from_nominatim(postcode, country):
+    url = f"https://nominatim.openstreetmap.org/search?postalcode={postcode}&country={country}&format=json"
+    headers = {'User-Agent': 'via-lumina-bot'}
+    response = requests.get(url, headers=headers)
+    data = response.json()
+    if data:
+        lat = float(data[0]['lat'])
+        lon = float(data[0]['lon'])
+        return lonlat_to_svg_coords(lon, lat)
+    return None, None
+
+def generate_svg():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT DISTINCT country, postcode FROM members WHERE confirmed = TRUE")
+    results = cur.fetchall()
+    conn.close()
+
+    circles = []
+    for country, postcode in results:
+        cx, cy = get_coords_from_nominatim(postcode, country)
+        if cx and cy:
+            circles.append(f'''
+<circle cx="{cx}" cy="{cy}" r="1.0" fill="#f4b400" filter="url(#glow)">
+  <title>{postcode}, {country} – Ein Ort, an dem das Licht weiterlebt.</title>
+</circle>
+''')
+
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        f.write("<svg xmlns='http://www.w3.org/2000/svg' width='2754' height='1398'>\n")
+        f.write("<defs><filter id='glow'><feGaussianBlur stdDeviation='2.5' result='glow'/></filter></defs>\n")
+        f.writelines(circles)
+        f.write("</svg>")
+
 @app.route('/')
 def index():
-    return "Via Lumina Backend (PostgreSQL verbunden)"
+    return "Via Lumina Backend aktiv"
 
 @app.route('/api/register', methods=['POST'])
 def register():
@@ -55,16 +96,14 @@ def register():
         conn.close()
 
     confirm_url = f"https://via-lumina-backend.onrender.com/api/confirm?email={email}&token={token}"
-
     subject = "Bestätige deine Anmeldung bei Via Lumina"
     plain_text = f"Bitte bestätige deine Anmeldung:\n{confirm_url}"
     html_content = f"""
     <p>Bitte bestätige deine Anmeldung bei <strong>Via Lumina</strong>:</p>
-    <p><a href="{confirm_url}">{confirm_url}</a></p>
+    <p><a href=\"{confirm_url}\">{confirm_url}</a></p>
     """
 
     send_email(email, subject, plain_text, html_content)
-
     return jsonify({'message': 'Bitte bestätige deine E-Mail.'}), 201
 
 @app.route('/api/confirm', methods=['GET'])
@@ -93,7 +132,7 @@ def confirm_email():
     return """
     <html>
       <head>
-        <meta http-equiv="refresh" content="0; URL='https://www.via-lumina.org/bestaetigt.html'" />
+        <meta http-equiv=\"refresh\" content=\"0; URL='https://www.via-lumina.org/bestaetigt.html'\" />
       </head>
       <body>
         <p>Du wirst weitergeleitet…</p>
@@ -126,38 +165,17 @@ def get_members():
 
     return jsonify({'members': members})
 
-@app.route('/api/init-db', methods=['POST'])
-def init_db():
-    token = request.args.get('access_token')
+@app.route("/api/generate-lichtpunkte", methods=["POST"])
+def api_generate_lichtpunkte():
+    token = request.args.get("access_token")
     if token != ADMIN_TOKEN:
-        return jsonify({'error': 'Zugriff verweigert'}), 403
-
-    conn = get_db_connection()
-    cur = conn.cursor()
+        return jsonify({"error": "Zugriff verweigert"}), 403
 
     try:
-        cur.execute('''
-            CREATE TABLE IF NOT EXISTS members (
-                id SERIAL PRIMARY KEY,
-                email TEXT NOT NULL UNIQUE,
-                country TEXT NOT NULL,
-                postcode TEXT NOT NULL,
-                confirmed BOOLEAN DEFAULT FALSE,
-                token TEXT
-            );
-        ''')
-        conn.commit()
-        return jsonify({'message': 'Tabelle "members" wurde erfolgreich erstellt.'}), 201
-
+        generate_svg()
+        return jsonify({"status": "fertig"})
     except Exception as e:
-        conn.rollback()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
-    finally:
-        cur.close()
-        conn.close()
-
-# Render-Port Setup
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
