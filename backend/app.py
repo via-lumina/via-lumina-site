@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, redirect
+from flask import Flask, request, jsonify
 import sqlite3
 import os
 import hashlib
@@ -44,7 +44,7 @@ def register():
         conn.close()
 
     # Bestätigungslink erstellen
-    confirm_url = f"https://www.via-lumina.org/api/confirm?email={email}&token={token}"
+    confirm_url = f"https://via-lumina-backend.onrender.com/api/confirm?email={email}&token={token}"
 
     # E-Mail versenden
     subject = "Bestätige deine Anmeldung bei Via Lumina"
@@ -70,7 +70,7 @@ def confirm_email():
     token = request.args.get('token')
 
     if not email or not token:
-        return jsonify({'error': 'Ungültiger Bestätigungslink'}), 400
+        return "<h1>Ungültiger Bestätigungslink</h1>", 400
 
     conn = get_db_connection()
     cur = conn.cursor()
@@ -79,15 +79,23 @@ def confirm_email():
 
     if not user:
         conn.close()
-        return jsonify({'error': 'E-Mail oder Token ungültig'}), 404
+        return "<h1>Bestätigung fehlgeschlagen</h1>", 404
 
-    # Bestätigen
     cur.execute('UPDATE members SET confirmed = 1 WHERE email = ?', (email,))
     conn.commit()
     conn.close()
 
-    # Weiterleitung zur Bestätigungsseite
-    return redirect("https://www.via-lumina.org/bestaetigt.html", code=302)
+    # Clientseitige Weiterleitung
+    return """
+    <html>
+      <head>
+        <meta http-equiv="refresh" content="0; URL='https://www.via-lumina.org/bestaetigt.html'" />
+      </head>
+      <body>
+        <p>Du wirst weitergeleitet…</p>
+      </body>
+    </html>
+    """
 
 # Render-Port Setup
 if __name__ == '__main__':
