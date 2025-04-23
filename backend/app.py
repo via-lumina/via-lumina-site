@@ -14,7 +14,7 @@ DB_CONFIG = {
     'user': os.environ['DB_USER'],
     'password': os.environ['DB_PASSWORD'],
     'host': os.environ['DB_HOST'],
-    'port': os.environ.get('DB_PORT', 5432)
+    'port': os.environ.get('DB_PORT', 5432) 
 }
 
 ADMIN_TOKEN = "$TefanTux240192"
