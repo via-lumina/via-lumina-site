@@ -8,6 +8,9 @@ from email_utils import send_email
 app = Flask(__name__)
 DATABASE = os.path.join(os.path.dirname(__file__), '..', 'data', 'via_lumina.db')
 
+# 🔐 Admin-Zugriffstoken definieren
+ADMIN_TOKEN = "$TefanTux240192"
+
 def get_db_connection():
     conn = sqlite3.connect(DATABASE)
     conn.row_factory = sqlite3.Row
@@ -27,11 +30,9 @@ def register():
     if not email or not country or not postcode:
         return jsonify({'error': 'Missing fields'}), 400
 
-    # Token generieren
     raw_token = f"{email}-{secrets.token_hex(16)}"
     token = hashlib.sha256(raw_token.encode()).hexdigest()
 
-    # In DB speichern (confirmed = False)
     conn = get_db_connection()
     cur = conn.cursor()
     try:
@@ -43,10 +44,8 @@ def register():
     finally:
         conn.close()
 
-    # Bestätigungslink erstellen
     confirm_url = f"https://via-lumina-backend.onrender.com/api/confirm?email={email}&token={token}"
 
-    # E-Mail versenden
     subject = "Bestätige deine Anmeldung bei Via Lumina"
     plain_text = (
         f"Du hast dich bei Via Lumina registriert.\n\n"
@@ -85,7 +84,6 @@ def confirm_email():
     conn.commit()
     conn.close()
 
-    # Clientseitige Weiterleitung
     return """
     <html>
       <head>
@@ -96,6 +94,30 @@ def confirm_email():
       </body>
     </html>
     """
+
+@app.route('/api/members', methods=['GET'])
+def get_members():
+    token = request.args.get('access_token')
+    if token != ADMIN_TOKEN:
+        return jsonify({'error': 'Zugriff verweigert'}), 403
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id, email, country, postcode, confirmed FROM members")
+    rows = cur.fetchall()
+    conn.close()
+
+    members = []
+    for row in rows:
+        members.append({
+            'id': row[0],
+            'email': row[1],
+            'country': row[2],
+            'postcode': row[3],
+            'confirmed': bool(row[4])
+        })
+
+    return jsonify({'members': members}), 200
 
 # Render-Port Setup
 if __name__ == '__main__':
